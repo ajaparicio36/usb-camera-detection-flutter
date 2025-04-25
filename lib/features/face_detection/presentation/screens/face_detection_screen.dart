@@ -25,6 +25,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
   Size _imageSize = Size(640, 480); // Default size, updated after first frame
   bool _isCapturing = false;
   late AnimationController _animationController;
+  List<int> _facesLookingAtCamera = []; // Track faces looking at camera
 
   // Size related to the camera preview
   late double _previewWidth;
@@ -53,10 +54,13 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
 
   void initializeDetector() {
     final options = FaceDetectorOptions(
-      enableClassification: false,
+      enableClassification: true, // Enable for better facial features
+      enableLandmarks: true, // Enable for facial landmarks
+      enableContours: true, // Enable for face contours
       enableTracking: true,
       minFaceSize: 0.1,
-      performanceMode: FaceDetectorMode.fast,
+      performanceMode:
+          FaceDetectorMode.accurate, // Use accurate mode for better results
     );
 
     _faceDetector = FaceDetector(options: options);
@@ -75,29 +79,55 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
       _previewHeight = screenSize.height * 0.5; // Use a fixed ratio
     });
 
-    // Start processing frames with a safer approach
-    _processingTimer = Timer.periodic(const Duration(milliseconds: 1000), (
-      timer,
-    ) {
-      if (!_isProcessing) {
-        processFrame();
+    // Replace periodic timer with single delayed call to avoid multiple timers
+    _scheduleNextFrameProcessing();
+  }
+
+  // New method to schedule frame processing one at a time
+  void _scheduleNextFrameProcessing() {
+    if (!mounted) return;
+
+    // Cancel any existing timer to prevent duplicates
+    _processingTimer?.cancel();
+
+    // Schedule next processing with a single shot timer
+    _processingTimer = Timer(const Duration(milliseconds: 1000), () {
+      if (mounted && !_isProcessing) {
+        processFrame().then((_) {
+          // Only schedule next frame if widget is still mounted
+          if (mounted) {
+            _scheduleNextFrameProcessing();
+          }
+        });
+      } else if (mounted) {
+        // If we're still processing, try again shortly
+        _scheduleNextFrameProcessing();
       }
     });
   }
 
+  void handleGazeTracking(List<int> facesLooking) {
+    setState(() {
+      _facesLookingAtCamera = facesLooking;
+    });
+  }
+
   Future<void> processFrame() async {
-    if (!_isCameraInitialized || !_isDetectorInitialized || _isProcessing)
+    if (!_isCameraInitialized || !_isDetectorInitialized || _isProcessing) {
       return;
+    }
 
     _isProcessing = true;
-    setState(() {
-      _processingStatus = "Processing frame...";
-      _isCapturing = true;
-    });
+    if (mounted) {
+      setState(() {
+        _processingStatus = "Processing frame...";
+        _isCapturing = true;
+      });
 
-    // Animate the capture status indicator
-    _animationController.reset();
-    _animationController.forward();
+      // Animate the capture status indicator
+      _animationController.reset();
+      _animationController.forward();
+    }
 
     try {
       // Get the camera frame as a file path with a timeout to prevent hanging
@@ -107,10 +137,12 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
       );
 
       if (imagePath == null) {
-        setState(() {
-          _processingStatus = "Failed to get frame";
-          _isCapturing = false;
-        });
+        if (mounted) {
+          setState(() {
+            _processingStatus = "Failed to get frame";
+            _isCapturing = false;
+          });
+        }
         _isProcessing = false;
         return;
       }
@@ -118,23 +150,30 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
       // Verify file exists before proceeding
       final file = File(imagePath);
       if (!await file.exists()) {
-        setState(() {
-          _processingStatus = "Image file not found";
-          _isCapturing = false;
-        });
+        if (mounted) {
+          setState(() {
+            _processingStatus = "Image file not found";
+            _isCapturing = false;
+          });
+        }
         _isProcessing = false;
         return;
       }
 
       // Get the actual image dimensions
       final image = await decodeImageFromList(await file.readAsBytes());
-      _imageSize = Size(image.width.toDouble(), image.height.toDouble());
+      final newImageSize = Size(
+        image.width.toDouble(),
+        image.height.toDouble(),
+      );
 
       // Create an InputImage from the file path
       final inputImage = InputImage.fromFilePath(imagePath);
 
       // Process the image with the face detector
-      final List<Face> faces = await _faceDetector.processImage(inputImage);
+      final List<Face> detectedFaces = await _faceDetector.processImage(
+        inputImage,
+      );
 
       // Delete the temporary file to avoid filling up storage
       try {
@@ -148,11 +187,16 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
       // Only update state if the widget is still mounted
       if (mounted) {
         setState(() {
-          _faces = faces;
+          // Update image size separately to avoid triggering additional rebuilds
+          _imageSize = newImageSize;
+
+          // Create a new list to prevent reference issues
+          _faces = List<Face>.from(detectedFaces);
+
           _processingStatus =
-              faces.isEmpty
+              _faces.isEmpty
                   ? "No faces detected"
-                  : "Detected ${faces.length} ${faces.length == 1 ? 'face' : 'faces'}";
+                  : "Detected ${_faces.length} ${_faces.length == 1 ? 'face' : 'faces'}";
           _isCapturing = false;
         });
       }
@@ -166,10 +210,8 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
         });
       }
     } finally {
-      // Ensure we always reset processing flag, but with a small delay
-      Future.delayed(Duration(milliseconds: 200), () {
-        _isProcessing = false;
-      });
+      // Ensure processing flag is reset
+      _isProcessing = false;
     }
   }
 
@@ -233,16 +275,18 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
           child: Column(
             children: [
               const SizedBox(height: 10),
-              // Camera view with face detection
+              // Camera view with face detection - use a key to avoid unnecessary rebuilds
               Expanded(
                 flex: 3,
                 child: Center(
                   child: FaceDetectionWidget(
+                    key: ValueKey('face_detection_widget'),
                     cameraController: _cameraController,
                     width: _previewWidth,
                     height: _previewHeight,
                     faces: _faces,
                     imageSize: _imageSize,
+                    onGazeTracked: handleGazeTracking,
                   ),
                 ),
               ),
@@ -279,6 +323,36 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
                       Expanded(
                         child: Text(
                           _processingStatus,
+                          style: TextStyle(
+                            color: AppColors.textColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Gaze tracking information
+              SizedBox(
+                height: 60,
+                child: NeumorphicContainer(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  isPressed: true,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.visibility,
+                        color: AppColors.accentBlue,
+                        size: 24,
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _facesLookingAtCamera.isEmpty
+                              ? "No faces looking at camera"
+                              : "${_facesLookingAtCamera.length} ${_facesLookingAtCamera.length == 1 ? 'face is' : 'faces are'} looking at camera",
                           style: TextStyle(
                             color: AppColors.textColor,
                             fontWeight: FontWeight.w500,
