@@ -2,32 +2,32 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_uvc_camera/flutter_uvc_camera.dart';
-import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import '../../../../core/theme/colors.dart';
-import '../widgets/face_detection_widget.dart';
+import '../widgets/pose_detection_widget.dart';
 import '../../../../core/theme/neumorphic_container.dart';
 
-class FaceDetectionScreen extends StatefulWidget {
-  const FaceDetectionScreen({super.key});
+class PoseDetectionScreen extends StatefulWidget {
+  const PoseDetectionScreen({super.key});
 
   @override
-  State<FaceDetectionScreen> createState() => _FaceDetectionScreenState();
+  State<PoseDetectionScreen> createState() => _PoseDetectionScreenState();
 }
 
-class _FaceDetectionScreenState extends State<FaceDetectionScreen>
+class _PoseDetectionScreenState extends State<PoseDetectionScreen>
     with SingleTickerProviderStateMixin {
   late UVCCameraController _cameraController;
-  late FaceDetector _faceDetector;
+  late PoseDetector _poseDetector;
   bool _isCameraInitialized = false;
   bool _isDetectorInitialized = false;
-  List<Face> _faces = [];
+  List<Pose> _poses = [];
   String _processingStatus = "Initializing...";
   bool _isProcessing = false;
   Timer? _processingTimer;
   Size _imageSize = Size(640, 480); // Default size, updated after first frame
   bool _isCapturing = false;
   late AnimationController _animationController;
-  List<int> _facesLookingAtCamera = []; // Track faces looking at camera
+  List<int> _alignedPoses = []; // Track poses with proper alignment
 
   // Size related to the camera preview
   late double _previewWidth;
@@ -49,23 +49,19 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
   @override
   void dispose() {
     _processingTimer?.cancel();
-    _faceDetector.close();
+    _poseDetector.close();
     _animationController.dispose();
     super.dispose();
   }
 
   void initializeDetector() {
-    final options = FaceDetectorOptions(
-      enableClassification: true, // Enable for better facial features
-      enableLandmarks: true, // Enable for facial landmarks
-      enableContours: true, // Enable for face contours
-      enableTracking: true,
-      minFaceSize: 0.1,
-      performanceMode:
-          FaceDetectorMode.accurate, // Use accurate mode for better results
+    final options = PoseDetectorOptions(
+      mode: PoseDetectionMode.stream, // Use stream mode for better performance
+      model:
+          PoseDetectionModel.accurate, // Use accurate model for better results
     );
 
-    _faceDetector = FaceDetector(options: options);
+    _poseDetector = PoseDetector(options: options);
     _isDetectorInitialized = true;
   }
 
@@ -108,12 +104,12 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
     });
   }
 
-  void handleGazeTracking(List<int> facesLooking) {
+  void handlePoseAlignment(List<int> posesAligned) {
     // Use post-frame callback to avoid setState during build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() {
-          _facesLookingAtCamera = facesLooking;
+          _alignedPoses = posesAligned;
         });
       }
     });
@@ -177,8 +173,8 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
       // Create an InputImage from the file path
       final inputImage = InputImage.fromFilePath(imagePath);
 
-      // Process the image with the face detector
-      final List<Face> detectedFaces = await _faceDetector.processImage(
+      // Process the image with the pose detector
+      final List<Pose> detectedPoses = await _poseDetector.processImage(
         inputImage,
       );
 
@@ -198,12 +194,12 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
           _imageSize = newImageSize;
 
           // Create a new list to prevent reference issues
-          _faces = List<Face>.from(detectedFaces);
+          _poses = List<Pose>.from(detectedPoses);
 
           _processingStatus =
-              _faces.isEmpty
-                  ? "No faces detected"
-                  : "Detected ${_faces.length} ${_faces.length == 1 ? 'face' : 'faces'}";
+              _poses.isEmpty
+                  ? "No poses detected"
+                  : "Detected ${_poses.length} ${_poses.length == 1 ? 'person' : 'people'}";
           _isCapturing = false;
         });
       }
@@ -262,7 +258,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
-          'Face Detection',
+          'Pose Detection',
           style: TextStyle(
             color: AppColors.textColor,
             fontWeight: FontWeight.w600,
@@ -282,18 +278,18 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
           child: Column(
             children: [
               const SizedBox(height: 10),
-              // Camera view with face detection - use a key to avoid unnecessary rebuilds
+              // Camera view with pose detection - use a key to avoid unnecessary rebuilds
               Expanded(
                 flex: 3,
                 child: Center(
-                  child: FaceDetectionWidget(
-                    key: ValueKey('face_detection_widget'),
+                  child: PoseDetectionWidget(
+                    key: ValueKey('pose_detection_widget'),
                     cameraController: _cameraController,
                     width: _previewWidth,
                     height: _previewHeight,
-                    faces: _faces,
+                    poses: _poses,
                     imageSize: _imageSize,
-                    onGazeTracked: handleGazeTracking,
+                    onPoseAligned: handlePoseAlignment,
                   ),
                 ),
               ),
@@ -341,7 +337,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
                 ),
               ),
               const SizedBox(height: 16),
-              // Gaze tracking information
+              // Pose alignment information
               SizedBox(
                 height: 60,
                 child: NeumorphicContainer(
@@ -350,16 +346,16 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
                   child: Row(
                     children: [
                       Icon(
-                        Icons.visibility,
+                        Icons.accessibility_new,
                         color: AppColors.accentBlue,
                         size: 24,
                       ),
                       SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          _facesLookingAtCamera.isEmpty
-                              ? "No faces looking at camera"
-                              : "${_facesLookingAtCamera.length} ${_facesLookingAtCamera.length == 1 ? 'face is' : 'faces are'} looking at camera",
+                          _alignedPoses.isEmpty
+                              ? "No aligned poses detected"
+                              : "${_alignedPoses.length} ${_alignedPoses.length == 1 ? 'person has' : 'people have'} proper alignment",
                           style: TextStyle(
                             color: AppColors.textColor,
                             fontWeight: FontWeight.w500,
@@ -384,7 +380,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Faces Detected:',
+                            'People Detected:',
                             style: TextStyle(
                               color: AppColors.textColor,
                               fontWeight: FontWeight.w600,
@@ -400,7 +396,7 @@ class _FaceDetectionScreenState extends State<FaceDetectionScreen>
                               borderRadius: BorderRadius.circular(15),
                               child: Center(
                                 child: Text(
-                                  '${_faces.length}',
+                                  '${_poses.length}',
                                   style: TextStyle(
                                     color: AppColors.accentBlue,
                                     fontWeight: FontWeight.bold,
