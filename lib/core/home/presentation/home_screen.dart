@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:usb_camera_detection/core/theme/colors.dart';
 import 'package:usb_camera_detection/core/theme/neumorphic_container.dart';
 import 'package:usb_camera_detection/features/face_detection/presentation/screens/face_detection_screen.dart';
+import 'package:usb_camera_detection/features/pose_detection/presentation/screens/pose_detection_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -61,10 +62,15 @@ class HomeScreen extends StatelessWidget {
                     Expanded(
                       child: buildDetectionTypeButton(
                         context,
-                        'Object Detection',
-                        Icons.camera_alt,
+                        'Pose Detection',
+                        Icons.person,
                         () {
-                          // Navigate to object detection screen
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PoseDetectionScreen(),
+                            ),
+                          );
                         },
                       ),
                     ),

@@ -60,8 +60,13 @@ class _FaceDetectionWidgetState extends State<FaceDetectionWidget> {
       }
     }
 
+    // Schedule state update for the next frame instead of immediately
     if (facesChanged && widget.onGazeTracked != null) {
-      _processGazeTracking();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _processGazeTracking();
+        }
+      });
     }
   }
 
@@ -84,7 +89,13 @@ class _FaceDetectionWidgetState extends State<FaceDetectionWidget> {
     }
 
     _lastReportedFacesGazing = List<int>.from(facesLookingAtCamera);
-    widget.onGazeTracked!(facesLookingAtCamera);
+
+    // Use post-frame callback for notifying parent to avoid setState during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.onGazeTracked != null) {
+        widget.onGazeTracked!(facesLookingAtCamera);
+      }
+    });
   }
 
   // Simple list comparison utility
