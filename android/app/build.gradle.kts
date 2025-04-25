@@ -6,7 +6,7 @@ plugins {
 }
 
 dependencies {
-    implementation("com.google.mlkit:face-mesh-detection:16-0.0-beta1")
+    implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("com.google.mlkit:pose-detection:18-0.0-beta5")
 }
 
